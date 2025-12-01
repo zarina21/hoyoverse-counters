@@ -57,6 +57,14 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        genshin: {
+          cyan: "hsl(var(--genshin-cyan))",
+          gold: "hsl(var(--genshin-gold))",
+        },
+        hsr: {
+          purple: "hsl(var(--hsr-purple))",
+          gold: "hsl(var(--hsr-gold))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
