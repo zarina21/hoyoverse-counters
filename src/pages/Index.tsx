@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import GameSelector from "@/components/GameSelector";
 import CountdownTimer from "@/components/CountdownTimer";
@@ -6,7 +7,8 @@ import BannerCard from "@/components/BannerCard";
 import EventCard from "@/components/EventCard";
 import genshinHero from "@/assets/genshin-hero.jpg";
 import hsrHero from "@/assets/hsr-hero.jpg";
-import { Loader2 } from "lucide-react";
+import { Loader2, Settings } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 type GameType = "genshin_impact" | "honkai_star_rail";
 
@@ -32,7 +34,7 @@ const Index = () => {
       .gte("release_date", new Date().toISOString())
       .order("release_date", { ascending: true })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     setNextVersion(versionData);
 
@@ -63,6 +65,13 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Admin Link */}
+      <Link to="/admin" className="fixed top-4 right-4 z-50">
+        <Button variant="ghost" size="icon" className="bg-background/50 backdrop-blur-sm">
+          <Settings className="w-5 h-5" />
+        </Button>
+      </Link>
+
       {/* Hero Section */}
       <div className="relative h-[60vh] overflow-hidden">
         <div 

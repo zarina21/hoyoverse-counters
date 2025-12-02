@@ -1,1 +1,4 @@
 project_id = "wxfrqeibdjekquioivqk"
+
+[functions.sync-game-data]
+verify_jwt = false
