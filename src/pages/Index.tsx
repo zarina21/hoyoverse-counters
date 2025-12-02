@@ -21,7 +21,96 @@ const Index = () => {
 
   useEffect(() => {
     fetchGameData();
+
+    // Subscribe to realtime changes for banners
+    const bannersChannel = supabase
+      .channel('banners-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'banners',
+          filter: `game=eq.${selectedGame}`,
+        },
+        () => {
+          fetchBanners();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to realtime changes for events
+    const eventsChannel = supabase
+      .channel('events-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'events',
+          filter: `game=eq.${selectedGame}`,
+        },
+        () => {
+          fetchEvents();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to realtime changes for versions
+    const versionsChannel = supabase
+      .channel('versions-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'game_versions',
+          filter: `game=eq.${selectedGame}`,
+        },
+        () => {
+          fetchVersion();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(bannersChannel);
+      supabase.removeChannel(eventsChannel);
+      supabase.removeChannel(versionsChannel);
+    };
   }, [selectedGame]);
+
+  const fetchVersion = async () => {
+    const { data: versionData } = await supabase
+      .from("game_versions")
+      .select("*")
+      .eq("game", selectedGame)
+      .gte("release_date", new Date().toISOString())
+      .order("release_date", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    setNextVersion(versionData);
+  };
+
+  const fetchBanners = async () => {
+    const { data: bannersData } = await supabase
+      .from("banners")
+      .select("*")
+      .eq("game", selectedGame)
+      .order("start_date", { ascending: false })
+      .limit(6);
+    setBanners(bannersData || []);
+  };
+
+  const fetchEvents = async () => {
+    const { data: eventsData } = await supabase
+      .from("events")
+      .select("*")
+      .eq("game", selectedGame)
+      .order("start_date", { ascending: false })
+      .limit(8);
+    setEvents(eventsData || []);
+  };
 
   const fetchGameData = async () => {
     setLoading(true);
