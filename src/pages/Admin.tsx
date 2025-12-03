@@ -3,11 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Trash2, Plus, ArrowLeft } from "lucide-react";
+import { Trash2, Plus, ArrowLeft, RefreshCw, Download, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import ImageUpload from "@/components/ImageUpload";
 
@@ -20,6 +20,8 @@ const Admin = () => {
   const [banners, setBanners] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResults, setSyncResults] = useState<any>(null);
 
   // Form states
   const [versionForm, setVersionForm] = useState({
@@ -133,6 +135,30 @@ const Admin = () => {
     }
   };
 
+  const handleScrape = async (action: string) => {
+    setSyncing(true);
+    setSyncResults(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("scrape-game-data", {
+        body: { action, game: selectedGame },
+      });
+
+      if (error) throw error;
+
+      setSyncResults(data);
+      if (data.success) {
+        toast.success(data.message || "Sincronización completada");
+      } else {
+        toast.error(data.error || "Error en la sincronización");
+      }
+    } catch (error: any) {
+      toast.error("Error: " + error.message);
+      setSyncResults({ success: false, error: error.message });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const gameTitle = selectedGame === "genshin_impact" ? "Genshin Impact" : "Honkai: Star Rail";
 
   return (
@@ -159,12 +185,91 @@ const Admin = () => {
           </Select>
         </div>
 
-        <Tabs defaultValue="versions" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+        <Tabs defaultValue="sync" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="sync">Sincronizar</TabsTrigger>
             <TabsTrigger value="versions">Versiones</TabsTrigger>
             <TabsTrigger value="banners">Banners</TabsTrigger>
             <TabsTrigger value="events">Eventos</TabsTrigger>
           </TabsList>
+
+          {/* SYNC TAB */}
+          <TabsContent value="sync" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <RefreshCw className="w-5 h-5" />
+                  Sincronización Automática
+                </CardTitle>
+                <CardDescription>
+                  Obtén datos actualizados de fuentes de la comunidad para {gameTitle}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Button 
+                    onClick={() => handleScrape('fetch_characters')} 
+                    disabled={syncing}
+                    variant="outline"
+                    className="h-20"
+                  >
+                    {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                    Obtener Personajes
+                  </Button>
+                  <Button 
+                    onClick={() => handleScrape('scrape_current_banners')} 
+                    disabled={syncing}
+                    variant="outline"
+                    className="h-20"
+                  >
+                    {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                    Buscar Banners Actuales
+                  </Button>
+                </div>
+                <Button 
+                  onClick={() => handleScrape('sync_from_source')} 
+                  disabled={syncing}
+                  className="w-full"
+                >
+                  {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                  Sincronización Completa
+                </Button>
+
+                {syncResults && (
+                  <Card className={syncResults.success ? "border-green-500/50 bg-green-500/10" : "border-red-500/50 bg-red-500/10"}>
+                    <CardContent className="pt-4">
+                      <p className="font-semibold mb-2">
+                        {syncResults.success ? "✅ Éxito" : "❌ Error"}
+                      </p>
+                      {syncResults.message && (
+                        <p className="text-sm text-muted-foreground">{syncResults.message}</p>
+                      )}
+                      {syncResults.note && (
+                        <p className="text-sm text-yellow-600 mt-2">⚠️ {syncResults.note}</p>
+                      )}
+                      {syncResults.error && (
+                        <p className="text-sm text-red-500">{syncResults.error}</p>
+                      )}
+                      {syncResults.data && typeof syncResults.data === 'object' && (
+                        <details className="mt-2">
+                          <summary className="text-sm cursor-pointer text-muted-foreground">Ver datos</summary>
+                          <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-auto max-h-40">
+                            {JSON.stringify(syncResults.data, null, 2)}
+                          </pre>
+                        </details>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                <div className="text-sm text-muted-foreground bg-muted/50 p-4 rounded-lg">
+                  <p className="font-semibold mb-2">ℹ️ Información</p>
+                  <p>El scraping automático utiliza APIs de la comunidad como genshin.dev y repositorios de GitHub.</p>
+                  <p className="mt-1">Debido a que HoYoverse no proporciona una API oficial pública, algunos datos pueden requerir ajuste manual.</p>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* VERSIONS TAB */}
           <TabsContent value="versions" className="space-y-6">
