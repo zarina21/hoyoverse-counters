@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Trash2, Plus, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
+import ImageUpload from "@/components/ImageUpload";
 
 type GameType = "genshin_impact" | "honkai_star_rail";
 type BannerType = "character" | "weapon" | "standard";
@@ -280,11 +281,14 @@ const Admin = () => {
                     />
                   </div>
                 </div>
-                <Input
-                  placeholder="URL de imagen (opcional)"
-                  value={bannerForm.image_url}
-                  onChange={(e) => setBannerForm({ ...bannerForm, image_url: e.target.value })}
-                />
+                <div>
+                  <label className="text-sm text-muted-foreground mb-2 block">Imagen del banner</label>
+                  <ImageUpload
+                    value={bannerForm.image_url}
+                    onChange={(url) => setBannerForm({ ...bannerForm, image_url: url })}
+                    folder="banners"
+                  />
+                </div>
                 <Button onClick={handleAddBanner} className="w-full">
                   <Plus className="w-4 h-4 mr-2" /> Agregar Banner
                 </Button>
@@ -359,11 +363,14 @@ const Admin = () => {
                   value={eventForm.rewards}
                   onChange={(e) => setEventForm({ ...eventForm, rewards: e.target.value })}
                 />
-                <Input
-                  placeholder="URL de imagen (opcional)"
-                  value={eventForm.image_url}
-                  onChange={(e) => setEventForm({ ...eventForm, image_url: e.target.value })}
-                />
+                <div>
+                  <label className="text-sm text-muted-foreground mb-2 block">Imagen del evento</label>
+                  <ImageUpload
+                    value={eventForm.image_url}
+                    onChange={(url) => setEventForm({ ...eventForm, image_url: url })}
+                    folder="events"
+                  />
+                </div>
                 <Button onClick={handleAddEvent} className="w-full">
                   <Plus className="w-4 h-4 mr-2" /> Agregar Evento
                 </Button>
