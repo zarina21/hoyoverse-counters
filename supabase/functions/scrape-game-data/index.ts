@@ -10,10 +10,9 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 // Genshin Impact banner data from community sources
-const GENSHIN_BANNERS_URL = 'https://api.github.com/repos/theBowja/genshin-db/contents/src/data/English/banners';
-const GENSHIN_CHARACTERS_URL = 'https://api.genshin.dev/characters';
+const GENSHIN_CHARACTERS_URL = 'https://genshin.jmp.blue/characters';
 
-// HSR data sources
+// HSR data sources  
 const HSR_CHARACTERS_URL = 'https://api.github.com/repos/Mar-7th/StarRailRes/contents/index_new/en/characters.json';
 
 interface BannerData {
