@@ -199,40 +199,40 @@ const Admin = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <RefreshCw className="w-5 h-5" />
-                  Sincronización Automática
+                  Sincronización desde Gengamer.in
                 </CardTitle>
                 <CardDescription>
-                  Obtén datos actualizados de fuentes de la comunidad para {gameTitle}
+                  Obtén datos de countdown y banners actuales para {gameTitle}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Button 
-                    onClick={() => handleScrape('fetch_characters')} 
+                    onClick={() => handleScrape('scrape_countdown')} 
                     disabled={syncing}
                     variant="outline"
                     className="h-20"
                   >
                     {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-                    Obtener Personajes
+                    Ver Datos Actuales
                   </Button>
                   <Button 
-                    onClick={() => handleScrape('scrape_current_banners')} 
+                    onClick={() => handleScrape('scrape_and_sync')} 
                     disabled={syncing}
                     variant="outline"
                     className="h-20"
                   >
                     {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                    Buscar Banners Actuales
+                    Sincronizar a Base de Datos
                   </Button>
                 </div>
                 <Button 
-                  onClick={() => handleScrape('sync_from_source')} 
+                  onClick={() => handleScrape('scrape_both_games')} 
                   disabled={syncing}
                   className="w-full"
                 >
                   {syncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                  Sincronización Completa
+                  Obtener Datos de Ambos Juegos
                 </Button>
 
                 {syncResults && (
@@ -251,9 +251,9 @@ const Admin = () => {
                         <p className="text-sm text-red-500">{syncResults.error}</p>
                       )}
                       {syncResults.data && typeof syncResults.data === 'object' && (
-                        <details className="mt-2">
+                        <details className="mt-2" open>
                           <summary className="text-sm cursor-pointer text-muted-foreground">Ver datos</summary>
-                          <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-auto max-h-40">
+                          <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-auto max-h-60">
                             {JSON.stringify(syncResults.data, null, 2)}
                           </pre>
                         </details>
@@ -263,9 +263,9 @@ const Admin = () => {
                 )}
 
                 <div className="text-sm text-muted-foreground bg-muted/50 p-4 rounded-lg">
-                  <p className="font-semibold mb-2">ℹ️ Información</p>
-                  <p>El scraping automático utiliza APIs de la comunidad como genshin.dev y repositorios de GitHub.</p>
-                  <p className="mt-1">Debido a que HoYoverse no proporciona una API oficial pública, algunos datos pueden requerir ajuste manual.</p>
+                  <p className="font-semibold mb-2">ℹ️ Fuente de datos</p>
+                  <p>Los datos se obtienen de genshin-countdown.gengamer.in y hsr-countdown.gengamer.in</p>
+                  <p className="mt-1">Incluye: versión actual, personajes destacados, fechas de lanzamiento e imágenes.</p>
                 </div>
               </CardContent>
             </Card>

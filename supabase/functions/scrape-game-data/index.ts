@@ -9,20 +9,98 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-// Genshin Impact banner data from community sources
-const GENSHIN_CHARACTERS_URL = 'https://genshin.jmp.blue/characters';
+// Gengamer countdown sites
+const GENSHIN_COUNTDOWN_URL = 'https://genshin-countdown.gengamer.in/';
+const HSR_COUNTDOWN_URL = 'https://hsr-countdown.gengamer.in/';
 
-// HSR data sources  
-const HSR_CHARACTERS_URL = 'https://api.github.com/repos/Mar-7th/StarRailRes/contents/index_new/en/characters.json';
+interface ScrapedBannerData {
+  version: string;
+  bannerTitle: string;
+  featuredCharacters: string;
+  releaseDate: string;
+  imageUrl: string | null;
+  game: 'genshin_impact' | 'honkai_star_rail';
+}
 
-interface BannerData {
-  name: string;
-  banner_type: 'character' | 'weapon' | 'standard';
-  featured_character: string;
-  start_date: string;
-  end_date: string;
-  image_url: string | null;
-  rarity: number;
+async function scrapeGengamerSite(url: string, game: 'genshin_impact' | 'honkai_star_rail'): Promise<ScrapedBannerData | null> {
+  try {
+    console.log(`Scraping ${url}...`);
+    const response = await fetch(url);
+    const html = await response.text();
+    
+    // Extract version and title from H1 (e.g., "Genshin Impact 6.2 Banner Countdown")
+    const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    const h1Text = h1Match ? h1Match[1].trim() : '';
+    
+    // Extract version number
+    const versionMatch = h1Text.match(/(\d+\.\d+)/);
+    const version = versionMatch ? versionMatch[1] : '';
+    
+    // Extract featured characters from H2 (e.g., "Varesa and Xilonen Banner Countdown")
+    const h2Match = html.match(/<h2[^>]*>.*?<strong[^>]*>([^<]+)<\/strong>/i);
+    let featuredCharacters = h2Match ? h2Match[1].trim() : '';
+    
+    // Clean up the banner title - remove "Banner Countdown"
+    featuredCharacters = featuredCharacters.replace(/\s*Banner\s*Countdown\s*/i, '').trim();
+    
+    // Extract release date from display-time paragraph
+    const releaseDateMatch = html.match(/Release Date &amp; Time: ([^<]+)/i) || 
+                             html.match(/Release Date & Time: ([^<]+)/i);
+    const releaseDate = releaseDateMatch ? releaseDateMatch[1].trim() : '';
+    
+    // Extract background image URL
+    const bgImageMatch = html.match(/id="bg-imageHome"[^>]*style="[^"]*url\('([^']+)'\)/i);
+    const imageUrl = bgImageMatch ? bgImageMatch[1] : null;
+    
+    console.log(`Scraped data for ${game}:`, { version, featuredCharacters, releaseDate, imageUrl });
+    
+    return {
+      version,
+      bannerTitle: h1Text,
+      featuredCharacters,
+      releaseDate,
+      imageUrl,
+      game
+    };
+  } catch (error) {
+    console.error(`Error scraping ${url}:`, error);
+    return null;
+  }
+}
+
+function parseReleaseDateToISO(dateStr: string): string {
+  // Parse date like "Tuesday, December 23 at 5:00 AM EST"
+  try {
+    const match = dateStr.match(/(\w+),\s+(\w+)\s+(\d+)\s+at\s+(\d+):(\d+)\s+(AM|PM)\s+(\w+)/i);
+    if (!match) {
+      // Return a date 21 days from now as fallback
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 21);
+      return futureDate.toISOString();
+    }
+    
+    const [, , month, day, hour, minute, ampm] = match;
+    const year = new Date().getFullYear();
+    const monthIndex = new Date(`${month} 1, 2000`).getMonth();
+    
+    let hours = parseInt(hour);
+    if (ampm.toUpperCase() === 'PM' && hours !== 12) hours += 12;
+    if (ampm.toUpperCase() === 'AM' && hours === 12) hours = 0;
+    
+    const date = new Date(year, monthIndex, parseInt(day), hours, parseInt(minute));
+    
+    // If the date is in the past, assume next year
+    if (date < new Date()) {
+      date.setFullYear(date.getFullYear() + 1);
+    }
+    
+    return date.toISOString();
+  } catch (e) {
+    console.error('Error parsing date:', e);
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 21);
+    return futureDate.toISOString();
+  }
 }
 
 serve(async (req) => {
@@ -37,162 +115,133 @@ serve(async (req) => {
     console.log(`Scrape action: ${action}, game: ${game}`);
 
     switch (action) {
-      case 'fetch_characters': {
-        if (game === 'genshin_impact') {
-          // Fetch character list from genshin.dev
-          const response = await fetch(GENSHIN_CHARACTERS_URL);
-          const characters = await response.json();
-          
-          console.log(`Fetched ${characters.length} Genshin characters`);
-          
+      case 'scrape_countdown': {
+        // Scrape from gengamer.in countdown sites
+        const url = game === 'genshin_impact' ? GENSHIN_COUNTDOWN_URL : HSR_COUNTDOWN_URL;
+        const data = await scrapeGengamerSite(url, game);
+        
+        if (!data) {
           return new Response(JSON.stringify({ 
-            success: true, 
-            data: characters,
-            message: `Obtenidos ${characters.length} personajes de Genshin Impact`
+            success: false, 
+            error: 'No se pudo obtener datos del sitio'
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        } else {
-          // For HSR, fetch from StarRailRes
-          try {
-            const response = await fetch(HSR_CHARACTERS_URL);
-            const fileData = await response.json();
-            const content = atob(fileData.content);
-            const characters = JSON.parse(content);
-            
-            console.log(`Fetched HSR characters data`);
-            
-            return new Response(JSON.stringify({ 
-              success: true, 
-              data: Object.keys(characters),
-              message: `Obtenidos datos de personajes de Honkai: Star Rail`
-            }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          } catch (e) {
-            console.error('Error fetching HSR data:', e);
-            return new Response(JSON.stringify({ 
-              success: false, 
-              error: 'No se pudo obtener datos de HSR'
-            }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          }
-        }
-      }
-
-      case 'scrape_current_banners': {
-        // Scrape current banner info from community wikis
-        const banners: BannerData[] = [];
-        
-        if (game === 'genshin_impact') {
-          // Try to fetch from Genshin Impact Fandom Wiki API
-          try {
-            const wikiUrl = 'https://genshin-impact.fandom.com/api.php?action=parse&page=Wishes&format=json&prop=wikitext';
-            const response = await fetch(wikiUrl);
-            const data = await response.json();
-            
-            if (data.parse?.wikitext) {
-              // Parse wiki content for current banners
-              const wikitext = data.parse.wikitext['*'];
-              console.log('Wiki content fetched, parsing...');
-              
-              // Extract banner information from wikitext
-              // This is a simplified parser - real implementation would be more robust
-              const currentBannerMatch = wikitext.match(/==\s*Current\s*==([\s\S]*?)(?===|$)/i);
-              
-              if (currentBannerMatch) {
-                console.log('Found current banner section');
-              }
-            }
-          } catch (e) {
-            console.error('Wiki scraping failed:', e);
-          }
-          
-          // Fallback: Use known banner schedule patterns
-          // Version 5.x banners typically run for ~3 weeks each phase
-          const now = new Date();
-          const currentVersion = '5.4';
-          
-          // Generate placeholder current banners based on typical schedule
-          banners.push({
-            name: `Genshin ${currentVersion} - Phase 1`,
-            banner_type: 'character',
-            featured_character: 'Personaje Destacado',
-            start_date: now.toISOString(),
-            end_date: new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000).toISOString(),
-            image_url: null,
-            rarity: 5
           });
         }
         
         return new Response(JSON.stringify({ 
           success: true, 
-          data: banners,
-          message: `Scraping completado. ${banners.length} banners encontrados.`,
-          note: 'El scraping automático tiene limitaciones. Se recomienda verificar y ajustar manualmente.'
+          data,
+          message: `Datos obtenidos de ${url}`
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      case 'fetch_character_details': {
-        const { characterName } = await req.json();
+      case 'scrape_and_sync': {
+        // Scrape data and sync to database
+        const url = game === 'genshin_impact' ? GENSHIN_COUNTDOWN_URL : HSR_COUNTDOWN_URL;
+        const scrapedData = await scrapeGengamerSite(url, game);
         
-        if (game === 'genshin_impact') {
-          try {
-            const response = await fetch(`https://api.genshin.dev/characters/${characterName}`);
-            const character = await response.json();
-            
-            return new Response(JSON.stringify({ 
-              success: true, 
-              data: character
-            }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          } catch (e) {
-            return new Response(JSON.stringify({ 
-              success: false, 
-              error: 'Personaje no encontrado'
-            }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          }
+        if (!scrapedData) {
+          return new Response(JSON.stringify({ 
+            success: false, 
+            error: 'No se pudo obtener datos del sitio'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
         }
         
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: 'Juego no soportado para esta acción'
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      case 'sync_from_source': {
-        // Comprehensive sync from multiple sources
         const results = {
-          characters: 0,
-          banners: 0,
-          events: 0,
+          version: null as any,
+          banner: null as any,
           errors: [] as string[]
         };
-
-        if (game === 'genshin_impact') {
-          // Fetch characters from genshin.dev
-          try {
-            const charResponse = await fetch(GENSHIN_CHARACTERS_URL);
-            const characters = await charResponse.json();
-            results.characters = characters.length;
-            console.log(`Synced ${characters.length} characters`);
-          } catch (e) {
-            results.errors.push('Error fetching characters: ' + (e as Error).message);
+        
+        // Parse release date
+        const releaseDate = parseReleaseDateToISO(scrapedData.releaseDate);
+        const endDate = new Date(releaseDate);
+        endDate.setDate(endDate.getDate() + 21); // Banners typically last 21 days
+        
+        // Upsert version
+        if (scrapedData.version) {
+          const { data: versionData, error: versionError } = await supabase
+            .from('game_versions')
+            .upsert({
+              game: game,
+              version_number: scrapedData.version,
+              release_date: releaseDate,
+              description: `Versión ${scrapedData.version} - ${scrapedData.featuredCharacters}`
+            }, { 
+              onConflict: 'game,version_number',
+              ignoreDuplicates: false 
+            })
+            .select();
+            
+          if (versionError) {
+            console.error('Error upserting version:', versionError);
+            results.errors.push(`Error en versión: ${versionError.message}`);
+          } else {
+            results.version = versionData;
           }
         }
-
+        
+        // Upsert banner
+        if (scrapedData.featuredCharacters) {
+          const bannerName = `${scrapedData.version} - ${scrapedData.featuredCharacters}`;
+          const { data: bannerData, error: bannerError } = await supabase
+            .from('banners')
+            .upsert({
+              game: game,
+              name: bannerName,
+              banner_type: 'character',
+              featured_character: scrapedData.featuredCharacters,
+              start_date: releaseDate,
+              end_date: endDate.toISOString(),
+              image_url: scrapedData.imageUrl,
+              rarity: 5
+            }, { 
+              onConflict: 'game,name',
+              ignoreDuplicates: false 
+            })
+            .select();
+            
+          if (bannerError) {
+            console.error('Error upserting banner:', bannerError);
+            results.errors.push(`Error en banner: ${bannerError.message}`);
+          } else {
+            results.banner = bannerData;
+          }
+        }
+        
         return new Response(JSON.stringify({ 
           success: results.errors.length === 0,
-          data: results,
-          message: `Sincronización completada: ${results.characters} personajes procesados`
+          data: {
+            scraped: scrapedData,
+            synced: results
+          },
+          message: results.errors.length === 0 
+            ? `Sincronizado: Versión ${scrapedData.version}, Banner: ${scrapedData.featuredCharacters}`
+            : `Sincronización parcial con errores`
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'scrape_both_games': {
+        // Scrape both games at once
+        const [genshinData, hsrData] = await Promise.all([
+          scrapeGengamerSite(GENSHIN_COUNTDOWN_URL, 'genshin_impact'),
+          scrapeGengamerSite(HSR_COUNTDOWN_URL, 'honkai_star_rail')
+        ]);
+        
+        return new Response(JSON.stringify({ 
+          success: true,
+          data: {
+            genshin_impact: genshinData,
+            honkai_star_rail: hsrData
+          },
+          message: 'Datos obtenidos de ambos juegos'
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
@@ -201,7 +250,7 @@ serve(async (req) => {
       default:
         return new Response(JSON.stringify({ 
           success: false, 
-          error: 'Acción desconocida' 
+          error: 'Acción desconocida. Acciones disponibles: scrape_countdown, scrape_and_sync, scrape_both_games' 
         }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
