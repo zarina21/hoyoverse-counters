@@ -43,10 +43,20 @@ async function scrapeGengamerSite(url: string, game: 'genshin_impact' | 'honkai_
     // Clean up the banner title - remove "Banner Countdown"
     featuredCharacters = featuredCharacters.replace(/\s*Banner\s*Countdown\s*/i, '').trim();
     
-    // Extract release date from display-time paragraph
-    const releaseDateMatch = html.match(/Release Date &amp; Time: ([^<]+)/i) || 
-                             html.match(/Release Date & Time: ([^<]+)/i);
-    const releaseDate = releaseDateMatch ? releaseDateMatch[1].trim() : '';
+    // Extract release date from the paragraph with id="display-time-GB-US" or similar
+    // Look for pattern like: >Release Date &amp; Time: Tuesday, December 23 at 6:00 PM EST<
+    const releaseDateMatch = html.match(/<p[^>]*id="display-time[^"]*"[^>]*>[^<]*Release Date[^:]*:\s*([A-Za-z]+,\s*[A-Za-z]+\s+\d+\s+at\s+\d+:\d+\s+[AP]M\s+[A-Z]+)/i);
+    let releaseDate = '';
+    
+    if (releaseDateMatch) {
+      releaseDate = releaseDateMatch[1].trim();
+    } else {
+      // Fallback: try to find date in hidden paragraph
+      const hiddenMatch = html.match(/is set to release on ([A-Za-z]+ \d+, \d+)/i);
+      if (hiddenMatch) {
+        releaseDate = hiddenMatch[1].trim();
+      }
+    }
     
     // Extract background image URL
     const bgImageMatch = html.match(/id="bg-imageHome"[^>]*style="[^"]*url\('([^']+)'\)/i);
