@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import GameSelector from "@/components/GameSelector";
@@ -18,6 +18,32 @@ const Index = () => {
   const [banners, setBanners] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Separate banners into current and upcoming
+  const { currentBanners, upcomingBanners } = useMemo(() => {
+    const now = new Date();
+    const current: any[] = [];
+    const upcoming: any[] = [];
+
+    banners.forEach((banner) => {
+      const startDate = new Date(banner.start_date);
+      const endDate = new Date(banner.end_date);
+
+      if (startDate <= now && endDate >= now) {
+        current.push(banner);
+      } else if (startDate > now) {
+        upcoming.push(banner);
+      }
+    });
+
+    // Sort current by end date (ending soon first)
+    current.sort((a, b) => new Date(a.end_date).getTime() - new Date(b.end_date).getTime());
+    
+    // Sort upcoming by start date
+    upcoming.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+
+    return { currentBanners: current, upcomingBanners: upcoming };
+  }, [banners]);
 
   useEffect(() => {
     fetchGameData();
@@ -93,12 +119,13 @@ const Index = () => {
   };
 
   const fetchBanners = async () => {
+    // Get all banners that haven't ended yet, plus recent ones
     const { data: bannersData } = await supabase
       .from("banners")
       .select("*")
       .eq("game", selectedGame)
       .order("start_date", { ascending: false })
-      .limit(6);
+      .limit(10);
     setBanners(bannersData || []);
   };
 
@@ -133,7 +160,7 @@ const Index = () => {
       .select("*")
       .eq("game", selectedGame)
       .order("start_date", { ascending: false })
-      .limit(6);
+      .limit(10);
 
     setBanners(bannersData || []);
 
@@ -206,12 +233,44 @@ const Index = () => {
               </section>
             )}
 
-            {/* Banners Section */}
-            {banners.length > 0 && (
+            {/* Current Banners Section */}
+            {currentBanners.length > 0 && (
               <section>
-                <h2 className="text-3xl font-bold mb-6">Banners</h2>
+                <div className="flex items-center gap-3 mb-6">
+                  <h2 className="text-3xl font-bold">Banners Actuales</h2>
+                  <span className="px-3 py-1 text-sm font-medium rounded-full bg-green-500/20 text-green-400 border border-green-500/30 animate-pulse">
+                    EN VIVO
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {banners.map((banner) => (
+                  {currentBanners.map((banner) => (
+                    <BannerCard
+                      key={banner.id}
+                      name={banner.name}
+                      featuredCharacter={banner.featured_character}
+                      startDate={new Date(banner.start_date)}
+                      endDate={new Date(banner.end_date)}
+                      imageUrl={banner.image_url}
+                      bannerType={banner.banner_type}
+                      rarity={banner.rarity}
+                      game={selectedGame}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Upcoming Banners Section */}
+            {upcomingBanners.length > 0 && (
+              <section>
+                <div className="flex items-center gap-3 mb-6">
+                  <h2 className="text-3xl font-bold">Próximos Banners</h2>
+                  <span className="px-3 py-1 text-sm font-medium rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    PRÓXIMAMENTE
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {upcomingBanners.map((banner) => (
                     <BannerCard
                       key={banner.id}
                       name={banner.name}
@@ -256,8 +315,14 @@ const Index = () => {
                   No hay datos disponibles para {gameTitle}
                 </p>
                 <p className="text-muted-foreground mt-2">
-                  Agrega versiones, banners y eventos desde el backend
+                  Agrega versiones, banners y eventos desde el panel de administración
                 </p>
+                <Link to="/admin">
+                  <Button className="mt-4">
+                    <Settings className="w-4 h-4 mr-2" />
+                    Ir al Panel de Admin
+                  </Button>
+                </Link>
               </div>
             )}
           </div>
