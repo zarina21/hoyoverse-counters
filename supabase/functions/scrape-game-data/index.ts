@@ -16,11 +16,23 @@ const HSR_COUNTDOWN_URL = 'https://hsr-countdown.gengamer.in/';
 interface ScrapedBannerData {
   version: string;
   bannerTitle: string;
-  featuredCharacters: string;
+  featuredCharacters: string[];
   releaseDate: string;
   imageUrl: string | null;
   game: 'genshin_impact' | 'honkai_star_rail';
 }
+
+// Character image URLs - manually maintained for accuracy
+const CHARACTER_IMAGES: Record<string, string> = {
+  // Genshin Impact
+  'varesa': 'https://static.wikia.nocookie.net/gensin-impact/images/8/8c/Varesa_Card.png',
+  'xilonen': 'https://static.wikia.nocookie.net/gensin-impact/images/d/d5/Xilonen_Card.png',
+  'mavuika': 'https://static.wikia.nocookie.net/gensin-impact/images/a/a5/Mavuika_Card.png',
+  'citlali': 'https://static.wikia.nocookie.net/gensin-impact/images/c/c5/Citlali_Card.png',
+  // Honkai Star Rail
+  'the dahlia': 'https://static.wikia.nocookie.net/houkai-star-rail/images/5/5d/Character_The_Dahlia_Card.png',
+  'anaxa': 'https://static.wikia.nocookie.net/houkai-star-rail/images/a/a5/Character_Anaxa_Card.png',
+};
 
 async function scrapeGengamerSite(url: string, game: 'genshin_impact' | 'honkai_star_rail'): Promise<ScrapedBannerData | null> {
   try {
@@ -38,13 +50,20 @@ async function scrapeGengamerSite(url: string, game: 'genshin_impact' | 'honkai_
     
     // Extract featured characters from H2 (e.g., "Varesa and Xilonen Banner Countdown")
     const h2Match = html.match(/<h2[^>]*>.*?<strong[^>]*>([^<]+)<\/strong>/i);
-    let featuredCharacters = h2Match ? h2Match[1].trim() : '';
+    let featuredText = h2Match ? h2Match[1].trim() : '';
     
     // Clean up the banner title - remove "Banner Countdown"
-    featuredCharacters = featuredCharacters.replace(/\s*Banner\s*Countdown\s*/i, '').trim();
+    featuredText = featuredText.replace(/\s*Banner\s*Countdown\s*/i, '').trim();
+    
+    // Split characters by "and", "y", "&" or ","
+    const characters = featuredText
+      .split(/\s+(?:and|y|&)\s+|,\s*/i)
+      .map(c => c.trim())
+      .filter(c => c.length > 0);
+    
+    console.log(`Parsed characters: ${JSON.stringify(characters)}`);
     
     // Extract release date from the paragraph with id="display-time-GB-US" or similar
-    // Look for pattern like: >Release Date &amp; Time: Tuesday, December 23 at 6:00 PM EST<
     const releaseDateMatch = html.match(/<p[^>]*id="display-time[^"]*"[^>]*>[^<]*Release Date[^:]*:\s*([A-Za-z]+,\s*[A-Za-z]+\s+\d+\s+at\s+\d+:\d+\s+[AP]M\s+[A-Z]+)/i);
     let releaseDate = '';
     
@@ -62,12 +81,12 @@ async function scrapeGengamerSite(url: string, game: 'genshin_impact' | 'honkai_
     const bgImageMatch = html.match(/id="bg-imageHome"[^>]*style="[^"]*url\('([^']+)'\)/i);
     const imageUrl = bgImageMatch ? bgImageMatch[1] : null;
     
-    console.log(`Scraped data for ${game}:`, { version, featuredCharacters, releaseDate, imageUrl });
+    console.log(`Scraped data for ${game}:`, { version, characters, releaseDate, imageUrl });
     
     return {
       version,
       bannerTitle: h1Text,
-      featuredCharacters,
+      featuredCharacters: characters,
       releaseDate,
       imageUrl,
       game
@@ -111,6 +130,11 @@ function parseReleaseDateToISO(dateStr: string): string {
     futureDate.setDate(futureDate.getDate() + 21);
     return futureDate.toISOString();
   }
+}
+
+function getCharacterImage(characterName: string): string | null {
+  const normalized = characterName.toLowerCase().trim();
+  return CHARACTER_IMAGES[normalized] || null;
 }
 
 serve(async (req) => {
@@ -164,14 +188,12 @@ serve(async (req) => {
         
         const results = {
           version: null as any,
-          banner: null as any,
+          banners: [] as any[],
           errors: [] as string[]
         };
         
-        // Parse release date
-        const releaseDate = parseReleaseDateToISO(scrapedData.releaseDate);
-        const endDate = new Date(releaseDate);
-        endDate.setDate(endDate.getDate() + 21); // Banners typically last 21 days
+        // Parse release date for the upcoming version
+        const upcomingReleaseDate = parseReleaseDateToISO(scrapedData.releaseDate);
         
         // Upsert version
         if (scrapedData.version) {
@@ -180,8 +202,8 @@ serve(async (req) => {
             .upsert({
               game: game,
               version_number: scrapedData.version,
-              release_date: releaseDate,
-              description: `Versión ${scrapedData.version} - ${scrapedData.featuredCharacters}`
+              release_date: upcomingReleaseDate,
+              description: `Versión ${scrapedData.version} - ${scrapedData.featuredCharacters.join(' y ')}`
             }, { 
               onConflict: 'game,version_number',
               ignoreDuplicates: false 
@@ -196,19 +218,46 @@ serve(async (req) => {
           }
         }
         
-        // Upsert banner
-        if (scrapedData.featuredCharacters) {
-          const bannerName = `${scrapedData.version} - ${scrapedData.featuredCharacters}`;
+        // Create separate banners for each character
+        const characters = scrapedData.featuredCharacters;
+        const now = new Date();
+        
+        for (let i = 0; i < characters.length; i++) {
+          const character = characters[i];
+          const isFirstBanner = i === 0;
+          
+          // First character banner is current (starts now, ends when next version drops)
+          // Second character banner is upcoming (starts when version drops)
+          let startDate: Date;
+          let endDate: Date;
+          
+          if (isFirstBanner) {
+            // Current banner - started earlier, ends when new version drops
+            startDate = new Date(now);
+            startDate.setDate(startDate.getDate() - 7); // Started a week ago
+            endDate = new Date(upcomingReleaseDate);
+          } else {
+            // Upcoming banner - starts with new version
+            startDate = new Date(upcomingReleaseDate);
+            endDate = new Date(upcomingReleaseDate);
+            endDate.setDate(endDate.getDate() + 21); // Lasts 21 days
+          }
+          
+          const bannerName = `${scrapedData.version} - ${character}`;
+          const characterImage = getCharacterImage(character) || scrapedData.imageUrl;
+          
+          console.log(`Creating banner: ${bannerName}, start: ${startDate.toISOString()}, end: ${endDate.toISOString()}`);
+          
           const { data: bannerData, error: bannerError } = await supabase
             .from('banners')
             .upsert({
               game: game,
               name: bannerName,
               banner_type: 'character',
-              featured_character: scrapedData.featuredCharacters,
-              start_date: releaseDate,
+              featured_character: character,
+              start_date: startDate.toISOString(),
               end_date: endDate.toISOString(),
-              image_url: scrapedData.imageUrl,
+              image_url: characterImage,
               rarity: 5
             }, { 
               onConflict: 'game,name',
@@ -217,10 +266,10 @@ serve(async (req) => {
             .select();
             
           if (bannerError) {
-            console.error('Error upserting banner:', bannerError);
-            results.errors.push(`Error en banner: ${bannerError.message}`);
+            console.error(`Error upserting banner for ${character}:`, bannerError);
+            results.errors.push(`Error en banner ${character}: ${bannerError.message}`);
           } else {
-            results.banner = bannerData;
+            results.banners.push(bannerData);
           }
         }
         
@@ -231,7 +280,7 @@ serve(async (req) => {
             synced: results
           },
           message: results.errors.length === 0 
-            ? `Sincronizado: Versión ${scrapedData.version}, Banner: ${scrapedData.featuredCharacters}`
+            ? `Sincronizado: Versión ${scrapedData.version}, ${results.banners.length} banners creados (${characters.join(', ')})`
             : `Sincronización parcial con errores`
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
