@@ -9,8 +9,8 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-// Gengamer countdown sites
-const GENSHIN_COUNTDOWN_URL = 'https://genshin-countdown.gengamer.in/';
+// Eurogamer for Genshin, Gengamer for HSR
+const GENSHIN_EUROGAMER_URL = 'https://www.eurogamer.net/genshin-impact-next-banner-current-list-all-history-9026';
 const HSR_COUNTDOWN_URL = 'https://hsr-countdown.gengamer.in/';
 
 interface ScrapedBannerData {
@@ -20,6 +20,15 @@ interface ScrapedBannerData {
   releaseDate: string;
   imageUrl: string | null;
   game: 'genshin_impact' | 'honkai_star_rail';
+  bannerType: 'character' | 'weapon';
+  endDate?: string;
+}
+
+interface EurogamerScrapedData {
+  currentBanners: ScrapedBannerData[];
+  nextBanners: ScrapedBannerData[];
+  currentWeaponBanner: ScrapedBannerData | null;
+  nextWeaponBanner: ScrapedBannerData | null;
 }
 
 // Character image URLs - manually maintained for accuracy
@@ -29,10 +38,218 @@ const CHARACTER_IMAGES: Record<string, string> = {
   'xilonen': 'https://static.wikia.nocookie.net/gensin-impact/images/d/d5/Xilonen_Card.png',
   'mavuika': 'https://static.wikia.nocookie.net/gensin-impact/images/a/a5/Mavuika_Card.png',
   'citlali': 'https://static.wikia.nocookie.net/gensin-impact/images/c/c5/Citlali_Card.png',
+  'durin': 'https://static.wikia.nocookie.net/gensin-impact/images/d/d0/Durin_Card.png',
+  'venti': 'https://static.wikia.nocookie.net/gensin-impact/images/7/76/Venti_Card.png',
+  'jahoda': 'https://static.wikia.nocookie.net/gensin-impact/images/j/ja/Jahoda_Card.png',
   // Honkai Star Rail
   'the dahlia': 'https://static.wikia.nocookie.net/houkai-star-rail/images/5/5d/Character_The_Dahlia_Card.png',
   'anaxa': 'https://static.wikia.nocookie.net/houkai-star-rail/images/a/a5/Character_Anaxa_Card.png',
+  'firefly': 'https://static.wikia.nocookie.net/houkai-star-rail/images/f/f8/Character_Firefly_Card.png',
 };
+
+async function scrapeEurogamerGenshin(): Promise<EurogamerScrapedData | null> {
+  try {
+    console.log(`Scraping Eurogamer for Genshin banners...`);
+    const response = await fetch(GENSHIN_EUROGAMER_URL);
+    const html = await response.text();
+    
+    const result: EurogamerScrapedData = {
+      currentBanners: [],
+      nextBanners: [],
+      currentWeaponBanner: null,
+      nextWeaponBanner: null
+    };
+    
+    // Extract version from text like "Phase 2 of version 6.2"
+    const versionMatch = html.match(/version\s+(\d+\.\d+)/i);
+    const version = versionMatch ? versionMatch[1] : '';
+    console.log(`Detected version: ${version}`);
+    
+    // Find current character banners section
+    // Look for "current Banners in Genshin Impact feature" text
+    const currentBannersMatch = html.match(/current Banners in Genshin Impact feature[^<]*?<strong>([^<]+)<\/strong>[^<]*?<strong>([^<]+)<\/strong>/i);
+    
+    if (currentBannersMatch) {
+      const char1 = currentBannersMatch[1].trim();
+      const char2 = currentBannersMatch[2].trim();
+      console.log(`Current characters found: ${char1}, ${char2}`);
+      
+      // Extract end date - look for "end on Tuesday 23rd December" pattern
+      const endDateMatch = html.match(/end on (\w+day \d+(?:st|nd|rd|th) \w+)/i);
+      let endDate = '';
+      if (endDateMatch) {
+        endDate = parseEurogamerDateToISO(endDateMatch[1]);
+        console.log(`Current banners end date: ${endDate}`);
+      }
+      
+      // Calculate start date (approximately 3 weeks before end)
+      const endDateObj = endDate ? new Date(endDate) : new Date();
+      const startDateObj = new Date(endDateObj);
+      startDateObj.setDate(startDateObj.getDate() - 21);
+      
+      for (const char of [char1, char2]) {
+        result.currentBanners.push({
+          version,
+          bannerTitle: `${version} Phase 1 - ${char}`,
+          featuredCharacters: [char],
+          releaseDate: startDateObj.toISOString(),
+          endDate: endDateObj.toISOString(),
+          imageUrl: getCharacterImage(char),
+          game: 'genshin_impact',
+          bannerType: 'character'
+        });
+      }
+    }
+    
+    // Find next character banners section
+    // Look for text like "Varesa and Xilonen are on the next Banners"
+    const nextBannersMatch = html.match(/<strong>([^<]+)<\/strong>\s+and\s+<strong>([^<]+)<\/strong>\s+are on the next Banners/i);
+    
+    if (nextBannersMatch) {
+      const char1 = nextBannersMatch[1].trim();
+      const char2 = nextBannersMatch[2].trim();
+      console.log(`Next characters found: ${char1}, ${char2}`);
+      
+      // Find "set to be released on Wednesday 3rd December" pattern
+      const releaseDateMatch = html.match(/set to be released on (\w+day \d+(?:st|nd|rd|th) \w+)/i);
+      let releaseDate = '';
+      if (releaseDateMatch) {
+        releaseDate = parseEurogamerDateToISO(releaseDateMatch[1]);
+        console.log(`Next banners release date: ${releaseDate}`);
+      }
+      
+      // End date is approximately 3 weeks after start
+      const startDateObj = releaseDate ? new Date(releaseDate) : new Date();
+      const endDateObj = new Date(startDateObj);
+      endDateObj.setDate(endDateObj.getDate() + 21);
+      
+      for (const char of [char1, char2]) {
+        result.nextBanners.push({
+          version,
+          bannerTitle: `${version} Phase 2 - ${char}`,
+          featuredCharacters: [char],
+          releaseDate: startDateObj.toISOString(),
+          endDate: endDateObj.toISOString(),
+          imageUrl: getCharacterImage(char),
+          game: 'genshin_impact',
+          bannerType: 'character'
+        });
+      }
+    }
+    
+    // Extract current weapon banner
+    // Look for "5-Star weapons on the current weapon Banner"
+    const currentWeaponsMatch = html.match(/5-Star weapons[^<]*?current weapon Banner[^<]*?<li>([^<]+)<\/li>[^<]*?<li>([^<]+)<\/li>/is);
+    if (currentWeaponsMatch || html.includes('current Epitome Invocation Banner')) {
+      // Try to find weapon names
+      const weaponPattern = /<li>([^<]+\((?:sword|bow|claymore|polearm|catalyst)\)[^<]*)<\/li>/gi;
+      const weapons: string[] = [];
+      let match;
+      
+      // Find the weapons section
+      const weaponSection = html.match(/Current Epitome Invocation Banner[\s\S]*?5-Star weapons[\s\S]*?<ul>([\s\S]*?)<\/ul>/i);
+      if (weaponSection) {
+        while ((match = weaponPattern.exec(weaponSection[1])) !== null) {
+          weapons.push(match[1].trim());
+        }
+      }
+      
+      if (weapons.length > 0) {
+        console.log(`Current weapons found: ${weapons.join(', ')}`);
+        
+        const endDateMatch = html.match(/current Epitome Invocation Banner runs until[^<]*?<strong>([^<]+)<\/strong>/i);
+        let endDate = '';
+        if (endDateMatch) {
+          endDate = parseEurogamerDateToISO(endDateMatch[1]);
+        }
+        
+        const endDateObj = endDate ? new Date(endDate) : new Date();
+        const startDateObj = new Date(endDateObj);
+        startDateObj.setDate(startDateObj.getDate() - 21);
+        
+        result.currentWeaponBanner = {
+          version,
+          bannerTitle: `${version} Phase 1 - Weapons`,
+          featuredCharacters: weapons,
+          releaseDate: startDateObj.toISOString(),
+          endDate: endDateObj.toISOString(),
+          imageUrl: null,
+          game: 'genshin_impact',
+          bannerType: 'weapon'
+        };
+      }
+    }
+    
+    // Extract next weapon banner info
+    const nextWeaponsMatch = html.match(/next boosted weapons in Phase 2[\s\S]*?<li>([^<]+)<\/li>[\s\S]*?<li>([^<]+)<\/li>/i);
+    if (nextWeaponsMatch) {
+      const weapon1 = nextWeaponsMatch[1].trim();
+      const weapon2 = nextWeaponsMatch[2].trim();
+      console.log(`Next weapons found: ${weapon1}, ${weapon2}`);
+      
+      // Use the next banner release date
+      const releaseDateMatch = html.match(/set to be released on (\w+day \d+(?:st|nd|rd|th) \w+)/i);
+      let releaseDate = '';
+      if (releaseDateMatch) {
+        releaseDate = parseEurogamerDateToISO(releaseDateMatch[1]);
+      }
+      
+      const startDateObj = releaseDate ? new Date(releaseDate) : new Date();
+      const endDateObj = new Date(startDateObj);
+      endDateObj.setDate(endDateObj.getDate() + 21);
+      
+      result.nextWeaponBanner = {
+        version,
+        bannerTitle: `${version} Phase 2 - Weapons`,
+        featuredCharacters: [weapon1, weapon2],
+        releaseDate: startDateObj.toISOString(),
+        endDate: endDateObj.toISOString(),
+        imageUrl: null,
+        game: 'genshin_impact',
+        bannerType: 'weapon'
+      };
+    }
+    
+    console.log(`Eurogamer scrape complete:`, {
+      currentBanners: result.currentBanners.length,
+      nextBanners: result.nextBanners.length,
+      hasCurrentWeapon: !!result.currentWeaponBanner,
+      hasNextWeapon: !!result.nextWeaponBanner
+    });
+    
+    return result;
+  } catch (error) {
+    console.error('Error scraping Eurogamer:', error);
+    return null;
+  }
+}
+
+function parseEurogamerDateToISO(dateStr: string): string {
+  try {
+    // Parse "Tuesday 23rd December" or "Wednesday 3rd December"
+    const match = dateStr.match(/(\w+day)\s+(\d+)(?:st|nd|rd|th)\s+(\w+)/i);
+    if (!match) {
+      console.log(`Could not parse date: ${dateStr}`);
+      return new Date().toISOString();
+    }
+    
+    const [, , day, month] = match;
+    const year = new Date().getFullYear();
+    const monthIndex = new Date(`${month} 1, 2000`).getMonth();
+    
+    let date = new Date(year, monthIndex, parseInt(day), 10, 0, 0); // 10:00 server time
+    
+    // If the date is in the past, use next year
+    if (date < new Date()) {
+      date.setFullYear(date.getFullYear() + 1);
+    }
+    
+    return date.toISOString();
+  } catch (e) {
+    console.error('Error parsing Eurogamer date:', e);
+    return new Date().toISOString();
+  }
+}
 
 async function scrapeGengamerSite(url: string, game: 'genshin_impact' | 'honkai_star_rail'): Promise<ScrapedBannerData | null> {
   try {
@@ -40,22 +257,18 @@ async function scrapeGengamerSite(url: string, game: 'genshin_impact' | 'honkai_
     const response = await fetch(url);
     const html = await response.text();
     
-    // Extract version and title from H1 (e.g., "Genshin Impact 6.2 Banner Countdown")
+    // Extract version and title from H1
     const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
     const h1Text = h1Match ? h1Match[1].trim() : '';
     
-    // Extract version number
     const versionMatch = h1Text.match(/(\d+\.\d+)/);
     const version = versionMatch ? versionMatch[1] : '';
     
-    // Extract featured characters from H2 (e.g., "Varesa and Xilonen Banner Countdown")
+    // Extract featured characters from H2
     const h2Match = html.match(/<h2[^>]*>.*?<strong[^>]*>([^<]+)<\/strong>/i);
     let featuredText = h2Match ? h2Match[1].trim() : '';
-    
-    // Clean up the banner title - remove "Banner Countdown"
     featuredText = featuredText.replace(/\s*Banner\s*Countdown\s*/i, '').trim();
     
-    // Split characters by "and", "y", "&" or ","
     const characters = featuredText
       .split(/\s+(?:and|y|&)\s+|,\s*/i)
       .map(c => c.trim())
@@ -63,14 +276,13 @@ async function scrapeGengamerSite(url: string, game: 'genshin_impact' | 'honkai_
     
     console.log(`Parsed characters: ${JSON.stringify(characters)}`);
     
-    // Extract release date from the paragraph with id="display-time-GB-US" or similar
+    // Extract release date
     const releaseDateMatch = html.match(/<p[^>]*id="display-time[^"]*"[^>]*>[^<]*Release Date[^:]*:\s*([A-Za-z]+,\s*[A-Za-z]+\s+\d+\s+at\s+\d+:\d+\s+[AP]M\s+[A-Z]+)/i);
     let releaseDate = '';
     
     if (releaseDateMatch) {
       releaseDate = releaseDateMatch[1].trim();
     } else {
-      // Fallback: try to find date in hidden paragraph
       const hiddenMatch = html.match(/is set to release on ([A-Za-z]+ \d+, \d+)/i);
       if (hiddenMatch) {
         releaseDate = hiddenMatch[1].trim();
@@ -89,7 +301,8 @@ async function scrapeGengamerSite(url: string, game: 'genshin_impact' | 'honkai_
       featuredCharacters: characters,
       releaseDate,
       imageUrl,
-      game
+      game,
+      bannerType: 'character'
     };
   } catch (error) {
     console.error(`Error scraping ${url}:`, error);
@@ -98,11 +311,9 @@ async function scrapeGengamerSite(url: string, game: 'genshin_impact' | 'honkai_
 }
 
 function parseReleaseDateToISO(dateStr: string): string {
-  // Parse date like "Tuesday, December 23 at 5:00 AM EST"
   try {
     const match = dateStr.match(/(\w+),\s+(\w+)\s+(\d+)\s+at\s+(\d+):(\d+)\s+(AM|PM)\s+(\w+)/i);
     if (!match) {
-      // Return a date 21 days from now as fallback
       const futureDate = new Date();
       futureDate.setDate(futureDate.getDate() + 21);
       return futureDate.toISOString();
@@ -118,7 +329,6 @@ function parseReleaseDateToISO(dateStr: string): string {
     
     const date = new Date(year, monthIndex, parseInt(day), hours, parseInt(minute));
     
-    // If the date is in the past, assume next year
     if (date < new Date()) {
       date.setFullYear(date.getFullYear() + 1);
     }
@@ -150,147 +360,314 @@ serve(async (req) => {
 
     switch (action) {
       case 'scrape_countdown': {
-        // Scrape from gengamer.in countdown sites
-        const url = game === 'genshin_impact' ? GENSHIN_COUNTDOWN_URL : HSR_COUNTDOWN_URL;
-        const data = await scrapeGengamerSite(url, game);
-        
-        if (!data) {
+        if (game === 'genshin_impact') {
+          // Use Eurogamer for Genshin
+          const data = await scrapeEurogamerGenshin();
+          if (!data) {
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: 'No se pudo obtener datos de Eurogamer'
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+          
           return new Response(JSON.stringify({ 
-            success: false, 
-            error: 'No se pudo obtener datos del sitio'
+            success: true, 
+            data,
+            message: `Datos obtenidos de Eurogamer: ${data.currentBanners.length} banners actuales, ${data.nextBanners.length} próximos`
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        } else {
+          // Use Gengamer for HSR
+          const data = await scrapeGengamerSite(HSR_COUNTDOWN_URL, game);
+          
+          if (!data) {
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: 'No se pudo obtener datos del sitio'
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+          
+          return new Response(JSON.stringify({ 
+            success: true, 
+            data,
+            message: `Datos obtenidos de Gengamer`
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        
-        return new Response(JSON.stringify({ 
-          success: true, 
-          data,
-          message: `Datos obtenidos de ${url}`
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
       }
 
       case 'scrape_and_sync': {
-        // Scrape data and sync to database
-        const url = game === 'genshin_impact' ? GENSHIN_COUNTDOWN_URL : HSR_COUNTDOWN_URL;
-        const scrapedData = await scrapeGengamerSite(url, game);
-        
-        if (!scrapedData) {
+        if (game === 'genshin_impact') {
+          // Use Eurogamer for Genshin
+          const scrapedData = await scrapeEurogamerGenshin();
+          
+          if (!scrapedData) {
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: 'No se pudo obtener datos de Eurogamer'
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+          
+          const results = {
+            bannersCreated: 0,
+            bannersUpdated: 0,
+            errors: [] as string[]
+          };
+          
+          // Process current character banners
+          for (const banner of scrapedData.currentBanners) {
+            const bannerName = banner.bannerTitle;
+            const char = banner.featuredCharacters[0];
+            
+            console.log(`Syncing current banner: ${bannerName}`);
+            
+            const { error } = await supabase
+              .from('banners')
+              .upsert({
+                game: 'genshin_impact',
+                name: bannerName,
+                banner_type: 'character',
+                featured_character: char,
+                start_date: banner.releaseDate,
+                end_date: banner.endDate,
+                image_url: banner.imageUrl,
+                rarity: 5
+              }, { 
+                onConflict: 'game,name',
+                ignoreDuplicates: false 
+              });
+              
+            if (error) {
+              console.error(`Error upserting banner ${bannerName}:`, error);
+              results.errors.push(`Error en ${bannerName}: ${error.message}`);
+            } else {
+              results.bannersCreated++;
+            }
+          }
+          
+          // Process next character banners
+          for (const banner of scrapedData.nextBanners) {
+            const bannerName = banner.bannerTitle;
+            const char = banner.featuredCharacters[0];
+            
+            console.log(`Syncing next banner: ${bannerName}`);
+            
+            const { error } = await supabase
+              .from('banners')
+              .upsert({
+                game: 'genshin_impact',
+                name: bannerName,
+                banner_type: 'character',
+                featured_character: char,
+                start_date: banner.releaseDate,
+                end_date: banner.endDate,
+                image_url: banner.imageUrl,
+                rarity: 5
+              }, { 
+                onConflict: 'game,name',
+                ignoreDuplicates: false 
+              });
+              
+            if (error) {
+              console.error(`Error upserting banner ${bannerName}:`, error);
+              results.errors.push(`Error en ${bannerName}: ${error.message}`);
+            } else {
+              results.bannersCreated++;
+            }
+          }
+          
+          // Process current weapon banner
+          if (scrapedData.currentWeaponBanner) {
+            const banner = scrapedData.currentWeaponBanner;
+            const bannerName = banner.bannerTitle;
+            
+            console.log(`Syncing current weapon banner: ${bannerName}`);
+            
+            const { error } = await supabase
+              .from('banners')
+              .upsert({
+                game: 'genshin_impact',
+                name: bannerName,
+                banner_type: 'weapon',
+                featured_character: banner.featuredCharacters.join(', '),
+                start_date: banner.releaseDate,
+                end_date: banner.endDate,
+                image_url: null,
+                rarity: 5
+              }, { 
+                onConflict: 'game,name',
+                ignoreDuplicates: false 
+              });
+              
+            if (error) {
+              results.errors.push(`Error en ${bannerName}: ${error.message}`);
+            } else {
+              results.bannersCreated++;
+            }
+          }
+          
+          // Process next weapon banner
+          if (scrapedData.nextWeaponBanner) {
+            const banner = scrapedData.nextWeaponBanner;
+            const bannerName = banner.bannerTitle;
+            
+            console.log(`Syncing next weapon banner: ${bannerName}`);
+            
+            const { error } = await supabase
+              .from('banners')
+              .upsert({
+                game: 'genshin_impact',
+                name: bannerName,
+                banner_type: 'weapon',
+                featured_character: banner.featuredCharacters.join(', '),
+                start_date: banner.releaseDate,
+                end_date: banner.endDate,
+                image_url: null,
+                rarity: 5
+              }, { 
+                onConflict: 'game,name',
+                ignoreDuplicates: false 
+              });
+              
+            if (error) {
+              results.errors.push(`Error en ${bannerName}: ${error.message}`);
+            } else {
+              results.bannersCreated++;
+            }
+          }
+          
           return new Response(JSON.stringify({ 
-            success: false, 
-            error: 'No se pudo obtener datos del sitio'
+            success: results.errors.length === 0,
+            data: {
+              scraped: scrapedData,
+              synced: results
+            },
+            message: results.errors.length === 0 
+              ? `Sincronizado desde Eurogamer: ${results.bannersCreated} banners (personajes + armas)`
+              : `Sincronización parcial con errores`
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+          
+        } else {
+          // HSR - use Gengamer
+          const scrapedData = await scrapeGengamerSite(HSR_COUNTDOWN_URL, game);
+          
+          if (!scrapedData) {
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: 'No se pudo obtener datos del sitio'
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+          
+          const results = {
+            version: null as any,
+            banners: [] as any[],
+            errors: [] as string[]
+          };
+          
+          const upcomingReleaseDate = parseReleaseDateToISO(scrapedData.releaseDate);
+          
+          // Upsert version
+          if (scrapedData.version) {
+            const { data: versionData, error: versionError } = await supabase
+              .from('game_versions')
+              .upsert({
+                game: game,
+                version_number: scrapedData.version,
+                release_date: upcomingReleaseDate,
+                description: `Versión ${scrapedData.version} - ${scrapedData.featuredCharacters.join(' y ')}`
+              }, { 
+                onConflict: 'game,version_number',
+                ignoreDuplicates: false 
+              })
+              .select();
+              
+            if (versionError) {
+              results.errors.push(`Error en versión: ${versionError.message}`);
+            } else {
+              results.version = versionData;
+            }
+          }
+          
+          // Create banners
+          const characters = scrapedData.featuredCharacters;
+          const now = new Date();
+          
+          for (let i = 0; i < characters.length; i++) {
+            const character = characters[i];
+            const isFirstBanner = i === 0;
+            
+            let startDate: Date;
+            let endDate: Date;
+            
+            if (isFirstBanner) {
+              startDate = new Date(now);
+              startDate.setDate(startDate.getDate() - 7);
+              endDate = new Date(upcomingReleaseDate);
+            } else {
+              startDate = new Date(upcomingReleaseDate);
+              endDate = new Date(upcomingReleaseDate);
+              endDate.setDate(endDate.getDate() + 21);
+            }
+            
+            const bannerName = `${scrapedData.version} - ${character}`;
+            const characterImage = getCharacterImage(character) || scrapedData.imageUrl;
+            
+            console.log(`Creating banner: ${bannerName}`);
+            
+            const { data: bannerData, error: bannerError } = await supabase
+              .from('banners')
+              .upsert({
+                game: game,
+                name: bannerName,
+                banner_type: 'character',
+                featured_character: character,
+                start_date: startDate.toISOString(),
+                end_date: endDate.toISOString(),
+                image_url: characterImage,
+                rarity: 5
+              }, { 
+                onConflict: 'game,name',
+                ignoreDuplicates: false 
+              })
+              .select();
+              
+            if (bannerError) {
+              results.errors.push(`Error en banner ${character}: ${bannerError.message}`);
+            } else {
+              results.banners.push(bannerData);
+            }
+          }
+          
+          return new Response(JSON.stringify({ 
+            success: results.errors.length === 0,
+            data: {
+              scraped: scrapedData,
+              synced: results
+            },
+            message: results.errors.length === 0 
+              ? `Sincronizado: Versión ${scrapedData.version}, ${results.banners.length} banners`
+              : `Sincronización parcial con errores`
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        
-        const results = {
-          version: null as any,
-          banners: [] as any[],
-          errors: [] as string[]
-        };
-        
-        // Parse release date for the upcoming version
-        const upcomingReleaseDate = parseReleaseDateToISO(scrapedData.releaseDate);
-        
-        // Upsert version
-        if (scrapedData.version) {
-          const { data: versionData, error: versionError } = await supabase
-            .from('game_versions')
-            .upsert({
-              game: game,
-              version_number: scrapedData.version,
-              release_date: upcomingReleaseDate,
-              description: `Versión ${scrapedData.version} - ${scrapedData.featuredCharacters.join(' y ')}`
-            }, { 
-              onConflict: 'game,version_number',
-              ignoreDuplicates: false 
-            })
-            .select();
-            
-          if (versionError) {
-            console.error('Error upserting version:', versionError);
-            results.errors.push(`Error en versión: ${versionError.message}`);
-          } else {
-            results.version = versionData;
-          }
-        }
-        
-        // Create separate banners for each character
-        const characters = scrapedData.featuredCharacters;
-        const now = new Date();
-        
-        for (let i = 0; i < characters.length; i++) {
-          const character = characters[i];
-          const isFirstBanner = i === 0;
-          
-          // First character banner is current (starts now, ends when next version drops)
-          // Second character banner is upcoming (starts when version drops)
-          let startDate: Date;
-          let endDate: Date;
-          
-          if (isFirstBanner) {
-            // Current banner - started earlier, ends when new version drops
-            startDate = new Date(now);
-            startDate.setDate(startDate.getDate() - 7); // Started a week ago
-            endDate = new Date(upcomingReleaseDate);
-          } else {
-            // Upcoming banner - starts with new version
-            startDate = new Date(upcomingReleaseDate);
-            endDate = new Date(upcomingReleaseDate);
-            endDate.setDate(endDate.getDate() + 21); // Lasts 21 days
-          }
-          
-          const bannerName = `${scrapedData.version} - ${character}`;
-          const characterImage = getCharacterImage(character) || scrapedData.imageUrl;
-          
-          console.log(`Creating banner: ${bannerName}, start: ${startDate.toISOString()}, end: ${endDate.toISOString()}`);
-          
-          const { data: bannerData, error: bannerError } = await supabase
-            .from('banners')
-            .upsert({
-              game: game,
-              name: bannerName,
-              banner_type: 'character',
-              featured_character: character,
-              start_date: startDate.toISOString(),
-              end_date: endDate.toISOString(),
-              image_url: characterImage,
-              rarity: 5
-            }, { 
-              onConflict: 'game,name',
-              ignoreDuplicates: false 
-            })
-            .select();
-            
-          if (bannerError) {
-            console.error(`Error upserting banner for ${character}:`, bannerError);
-            results.errors.push(`Error en banner ${character}: ${bannerError.message}`);
-          } else {
-            results.banners.push(bannerData);
-          }
-        }
-        
-        return new Response(JSON.stringify({ 
-          success: results.errors.length === 0,
-          data: {
-            scraped: scrapedData,
-            synced: results
-          },
-          message: results.errors.length === 0 
-            ? `Sincronizado: Versión ${scrapedData.version}, ${results.banners.length} banners creados (${characters.join(', ')})`
-            : `Sincronización parcial con errores`
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
       }
 
       case 'scrape_both_games': {
-        // Scrape both games at once
         const [genshinData, hsrData] = await Promise.all([
-          scrapeGengamerSite(GENSHIN_COUNTDOWN_URL, 'genshin_impact'),
+          scrapeEurogamerGenshin(),
           scrapeGengamerSite(HSR_COUNTDOWN_URL, 'honkai_star_rail')
         ]);
         
@@ -300,7 +677,7 @@ serve(async (req) => {
             genshin_impact: genshinData,
             honkai_star_rail: hsrData
           },
-          message: 'Datos obtenidos de ambos juegos'
+          message: 'Datos obtenidos de ambos juegos (Genshin desde Eurogamer, HSR desde Gengamer)'
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
