@@ -78,7 +78,7 @@ async function scrapeEurogamerGenshin(): Promise<EurogamerScrapedData | null> {
       const endDateMatch = html.match(/end on (\w+day \d+(?:st|nd|rd|th) \w+)/i);
       let endDate = '';
       if (endDateMatch) {
-        endDate = parseEurogamerDateToISO(endDateMatch[1]);
+        endDate = parseEurogamerDateToISO(endDateMatch[1], true); // allowPast for end dates
         console.log(`Current banners end date: ${endDate}`);
       }
       
@@ -224,7 +224,7 @@ async function scrapeEurogamerGenshin(): Promise<EurogamerScrapedData | null> {
   }
 }
 
-function parseEurogamerDateToISO(dateStr: string): string {
+function parseEurogamerDateToISO(dateStr: string, allowPast: boolean = false): string {
   try {
     // Parse "Tuesday 23rd December" or "Wednesday 3rd December"
     const match = dateStr.match(/(\w+day)\s+(\d+)(?:st|nd|rd|th)\s+(\w+)/i);
@@ -234,14 +234,21 @@ function parseEurogamerDateToISO(dateStr: string): string {
     }
     
     const [, , day, month] = match;
-    const year = new Date().getFullYear();
+    const now = new Date();
+    const year = now.getFullYear();
     const monthIndex = new Date(`${month} 1, 2000`).getMonth();
     
     let date = new Date(year, monthIndex, parseInt(day), 10, 0, 0); // 10:00 server time
     
-    // If the date is in the past, use next year
-    if (date < new Date()) {
-      date.setFullYear(date.getFullYear() + 1);
+    // For end dates (allowPast=true), we keep current year even if date passed
+    // For future dates (allowPast=false), if date is more than 2 months in the past, use next year
+    if (!allowPast) {
+      const twoMonthsAgo = new Date(now);
+      twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+      
+      if (date < twoMonthsAgo) {
+        date.setFullYear(date.getFullYear() + 1);
+      }
     }
     
     return date.toISOString();
